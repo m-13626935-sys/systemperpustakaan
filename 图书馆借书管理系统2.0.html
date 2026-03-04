@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图书馆借书管理系统 </title>
+    <!-- Tailwind CSS v3 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- jsPDF + html2canvas (保留PDF导出) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#1e40af',
+                        secondary: '#3b82f6',
+                        accent: '#60a5fa',
+                        light: '#f3f4f6',
+                        dark: '#1f2937'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto { content-visibility: auto; }
+            .glass-effect { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); }
+            .transition-all-300 { transition: all 0.3s ease; }
+            .shadow-hover:hover { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        }
+    </style>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #c5c5c5; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+        .stars { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; }
+        .star { position: absolute; background-color: white; border-radius: 50%; animation: twinkle 5s infinite ease-in-out; }
+        @keyframes twinkle { 0%,100%{opacity:0.2} 50%{opacity:0.8} }
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+        .tab-content { transition: opacity 0.3s ease; }
+        .tab-content.hidden { opacity: 0; position: absolute; pointer-events: none; }
+        .tab-content:not(.hidden) { opacity: 1; position: relative; }
+        .table-row:hover { background-color: rgba(59, 130, 246, 0.05); }
+        .badge { transition: all 0.3s ease; }
+        .badge:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans">
+    <!-- 登录页面 -->
+    <div id="login-page" class="min-h-screen flex items-center justify-center relative overflow-hidden bg-gradient-to-br from-blue-900 to-indigo-900">
+        <div class="stars" id="stars"></div>
+        <div class="w-full max-w-md p-8 space-y-8 bg-white bg-opacity-10 backdrop-blur-lg rounded-2xl shadow-xl border border-white border-opacity-20">
+            <div class="text-center">
+                <h1 class="text-3xl font-bold text-white mb-2">图书馆借书管理系统</h1>
+                <p class="text-blue-200">请输入密码登录系统</p>
+                <p class="text-blue-200">作者：豆包AI，深度求索AI，郑家诚</p>
+            </div>
+            <form id="login-form" class="mt-8 space-y-6">
+                <div>
+                    <label for="password" class="block text-sm font-medium text-white mb-2">密码</label>
+                    <div class="relative">
+                        <input id="password" name="password" type="password" required class="w-full px-4 py-3 text-gray-900 bg-white bg-opacity-90 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" placeholder="请输入密码">
+                        <button type="button" id="toggle-password" class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500"><i class="fa fa-eye-slash"></i></button>
+                    </div>
+                </div>
+                <div>
+                    <button type="submit" class="w-full py-3 font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow transition-all duration-300 btn-primary">登录</button>
+                </div>
+                <div id="login-error" class="hidden bg-red-500 bg-opacity-20 text-red-500 text-sm p-3 rounded-lg text-center">密码错误，请重新输入！</div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 主管理页面 -->
+    <div id="main-page" class="hidden min-h-screen bg-gray-50">
+        <nav class="bg-primary text-white shadow-md">
+            <div class="container mx-auto px-4 py-3 flex justify-between items-center flex-wrap gap-2">
+                <div class="flex items-center space-x-2"><i class="fa fa-book text-2xl"></i><h1 class="text-xl font-bold">图书馆借书管理系统 | 作者：豆包AI，深度求索AI，郑家诚</h1></div>
+                <!-- 导航栏右侧：同步状态 + 备份工具 + 退出登录 -->
+                <div class="flex items-center space-x-4 flex-wrap">
+                    <!-- 本地文件同步状态指示器 -->
+                    <span id="sync-status" class="flex items-center text-sm" title="本地文件同步状态">
+                        <i id="sync-icon" class="fa fa-circle text-gray-400 mr-1"></i>
+                        <span id="sync-text">未连接</span>
+                    </span>
+                    <!-- 自动同步按钮（如果环境支持则显示） -->
+                    <button id="sync-file-btn" class="px-3 py-1 bg-green-600 hover:bg-green-700 rounded-md text-sm transition-all">
+                        <i class="fa fa-file-text-o mr-1"></i>新建
+                    </button>
+                    <!-- 手动备份/恢复按钮（所有环境可用） -->
+                    <button id="export-backup-btn" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-md text-sm transition-all" title="导出JSON备份">
+                        <i class="fa fa-download mr-1"></i>导出备份
+                    </button>
+                    <button id="import-backup-btn" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded-md text-sm transition-all" title="导入JSON备份">
+                        <i class="fa fa-upload mr-1"></i>导入恢复
+                    </button>
+                    <span id="current-user" class="hidden">管理员</span>
+                    <button id="logout-btn" class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded-md text-sm transition-all">退出登录</button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 标签页导航 (不变) -->
+        <div class="bg-white shadow-sm">
+            <div class="container mx-auto px-4">
+                <div class="flex overflow-x-auto whitespace-nowrap py-1" id="tab-nav">
+                    <button class="tab-btn px-6 py-3 font-medium text-primary border-b-2 border-primary" data-tab="borrow-tab"><i class="fa fa-plus-circle mr-2"></i>借阅管理</button>
+                    <button class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-primary border-b-2 border-transparent" data-tab="return-tab"><i class="fa fa-check-circle mr-2"></i>归还管理</button>
+                    <button class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-primary border-b-2 border-transparent" data-tab="records-tab"><i class="fa fa-list-alt mr-2"></i>记录查询</button>
+                    <button class="tab-btn px-6 py-3 font-medium text-gray-500 hover:text-primary border-b-2 border-transparent" data-tab="readers-tab"><i class="fa fa-users mr-2"></i>读者信息管理</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 标签页内容容器 (与之前完全一致，略) -->
+        <div class="container mx-auto px-4 py-6">
+            <!-- 借阅管理 -->
+            <div id="borrow-tab" class="tab-content fade-in">
+                <div class="bg-white rounded-lg shadow-sm p-6">
+                    <h2 class="text-xl font-bold text-gray-800 mb-6">借阅图书</h2>
+                    <form id="borrow-form" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div><label for="grade" class="block text-sm font-medium text-gray-700 mb-1">年级</label>
+                                <select id="grade" name="grade" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input">
+                                    <option value="">请选择年级</option><option value="1">1年级</option><option value="2">2年级</option><option value="3">3年级</option><option value="4">4年级</option><option value="5">5年级</option><option value="6">6年级</option>
+                                </select>
+                            </div>
+                            <div><label for="reader-name" class="block text-sm font-medium text-gray-700 mb-1">读者名称</label><input id="reader-name" name="reader-name" type="text" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入读者姓名"></div>
+                            <div><label for="book-name" class="block text-sm font-medium text-gray-700 mb-1">书籍名称</label><input id="book-name" name="book-name" type="text" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入书籍名称"></div>
+                            <div><label for="book-price" class="block text-sm font-medium text-gray-700 mb-1">书籍价格</label><input id="book-price" name="book-price" type="number" step="0.01" min="0" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入书籍价格"></div>
+                        </div>
+                        <div class="flex items-center justify-end space-x-4"><button type="button" id="reset-borrow-form" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 transition-all">重置</button><button type="submit" class="px-6 py-2 bg-primary text-white rounded-md hover:bg-blue-700 transition-all btn-primary">确认借阅</button></div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 归还管理 -->
+            <div id="return-tab" class="tab-content hidden fade-in">
+                <div class="bg-white rounded-lg shadow-sm p-6">
+                    <h2 class="text-xl font-bold text-gray-800 mb-6">归还图书</h2>
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center space-x-2">
+                            <button id="export-overdue-pdf" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-all btn-primary"><i class="fa fa-exclamation-triangle mr-2"></i>导出逾期图书</button>
+                            <button id="export-return-pdf" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all btn-primary"><i class="fa fa-file-pdf-o mr-2"></i>导出全部未归还</button>
+                        </div>
+                    </div>
+                    <div class="mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                            <div><label for="search-grade" class="block text-sm font-medium text-gray-700 mb-1">年级</label><select id="search-grade" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input"><option value="">全部年级</option><option value="1">1年级</option><option value="2">2年级</option><option value="3">3年级</option><option value="4">4年级</option><option value="5">5年级</option><option value="6">6年级</option></select></div>
+                            <div><label for="search-reader" class="block text-sm font-medium text-gray-700 mb-1">读者名称</label><input id="search-reader" type="text" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入读者姓名"></div>
+                            <div><label for="search-book" class="block text-sm font-medium text-gray-700 mb-1">书籍名称</label><input id="search-book" type="text" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入书籍名称"></div>
+                            <div><label for="search-borrow-date" class="block text-sm font-medium text-gray-700 mb-1">借阅时间</label><input id="search-borrow-date" type="date" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input"></div>
+                            <div><label for="search-return-date" class="block text-sm font-medium text-gray-700 mb-1">应还时间</label><input id="search-return-date" type="date" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input"></div>
+                        </div>
+                        <div class="flex justify-end mt-4"><button id="reset-search" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 transition-all mr-2">重置</button><button id="search-return-btn" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-blue-700 transition-all btn-primary"><i class="fa fa-search mr-2"></i>查询</button></div>
+                    </div>
+                    <div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">序号</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">年级</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">读者名称</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">书籍名称</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">借阅时间</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">应还时间</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th></tr></thead><tbody id="return-books-list" class="bg-white divide-y divide-gray-200"><tr><td colspan="8" class="px-6 py-4 text-center text-gray-500">暂无待归还图书</td></tr></tbody></table></div>
+                </div>
+            </div>
+
+            <!-- 记录查询 -->
+            <div id="records-tab" class="tab-content hidden fade-in">
+                <div class="bg-white rounded-lg shadow-sm p-6">
+                    <div class="flex justify-between items-center mb-6"><h2 class="text-xl font-bold text-gray-800">借还记录查询</h2><button id="export-records-pdf" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all btn-primary"><i class="fa fa-file-pdf-o mr-2"></i>导出PDF</button></div>
+                    <div class="mb-6 flex flex-wrap gap-4">
+                        <div class="flex-grow"><label for="search-records" class="block text-sm font-medium text-gray-700 mb-1">搜索记录</label><div class="relative"><input id="search-records" type="text" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入读者姓名或书籍名称"><div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><i class="fa fa-search text-gray-400"></i></div></div></div>
+                        <div class="w-full md:w-auto"><label for="filter-status" class="block text-sm font-medium text-gray-700 mb-1">筛选状态</label><select id="filter-status" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input"><option value="all">全部记录</option><option value="borrowed">未归还</option><option value="returned">已归还</option></select></div>
+                        <div class="flex items-end"><button id="search-records-btn" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-blue-700 transition-all btn-primary"><i class="fa fa-search mr-2"></i>查询</button></div>
+                    </div>
+                    <div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">序号</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">年级</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">读者名称</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">书籍名称</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">价格</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">借阅时间</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">应还时间</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">归还时间</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th></tr></thead><tbody id="records-list" class="bg-white divide-y divide-gray-200"><tr><td colspan="9" class="px-6 py-4 text-center text-gray-500">暂无借还记录</td></tr></tbody></table></div>
+                    <div class="mt-4 flex justify-between items-center"><div class="text-sm text-gray-500">共 <span id="total-records">0</span> 条记录</div><div class="flex space-x-2"><button id="prev-page" class="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed">上一页</button><span id="current-page">1</span><button id="next-page" class="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed">下一页</button></div></div>
+                </div>
+            </div>
+
+            <!-- 读者信息管理 -->
+            <div id="readers-tab" class="tab-content hidden fade-in">
+                <div class="bg-white rounded-lg shadow-sm p-6">
+                    <h2 class="text-xl font-bold text-gray-800 mb-6">读者信息管理</h2>
+                    <div class="mb-6 flex flex-wrap gap-4">
+                        <div class="flex-grow"><label for="search-readers" class="block text-sm font-medium text-gray-700 mb-1">搜索读者</label><div class="relative"><input id="search-readers" type="text" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入读者姓名"><div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><i class="fa fa-search text-gray-400"></i></div></div></div>
+                        <div class="w-full md:w-auto"><label for="filter-grade" class="block text-sm font-medium text-gray-700 mb-1">筛选年级</label><select id="filter-grade" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input"><option value="all">全部年级</option><option value="1">1年级</option><option value="2">2年级</option><option value="3">3年级</option><option value="4">4年级</option><option value="5">5年级</option><option value="6">6年级</option></select></div>
+                        <div class="flex items-end space-x-2"><button id="search-readers-btn" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-blue-700 transition-all btn-primary"><i class="fa fa-search mr-2"></i>查询</button><button id="add-reader-btn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-all"><i class="fa fa-plus mr-2"></i>新增读者</button><button id="export-readers-pdf" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-all"><i class="fa fa-file-pdf-o mr-2"></i>导出PDF</button></div>
+                    </div>
+                    <div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">序号</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">年级</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">读者名称</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">未还图书</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th></tr></thead><tbody id="readers-list" class="bg-white divide-y divide-gray-200"><tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">暂无读者信息</td></tr></tbody></table></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增读者模态框 (不变) -->
+    <div id="add-reader-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 class="text-lg font-bold text-gray-800 mb-4">新增读者</h3>
+            <form id="add-reader-form">
+                <div class="mb-4"><label for="new-reader-grade" class="block text-sm font-medium text-gray-700 mb-1">年级</label><select id="new-reader-grade" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input"><option value="">请选择年级</option><option value="1">1年级</option><option value="2">2年级</option><option value="3">3年级</option><option value="4">4年级</option><option value="5">5年级</option><option value="6">6年级</option></select></div>
+                <div class="mb-4"><label for="new-reader-name" class="block text-sm font-medium text-gray-700 mb-1">读者名称</label><input id="new-reader-name" type="text" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入读者名称"></div>
+                <div class="flex justify-end space-x-4"><button type="button" id="cancel-add-reader" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 transition-all">取消</button><button type="submit" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-blue-700 transition-all btn-primary">确认添加</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 确认对话框 (不变) -->
+    <div id="confirm-dialog" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 id="confirm-title" class="text-lg font-bold text-gray-800 mb-4">确认操作</h3>
+            <p id="confirm-message" class="text-gray-600 mb-6">您确定要执行此操作吗？</p>
+            <div class="flex justify-end space-x-4"><button id="cancel-confirm" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 transition-all">取消</button><button id="confirm-action" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-blue-700 transition-all btn-primary">确认</button></div>
+        </div>
+    </div>
+
+    <!-- 修改读者对话框 (不变) -->
+    <div id="edit-reader-dialog" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 class="text-lg font-bold text-gray-800 mb-4">修改读者信息</h3>
+            <form id="edit-reader-form" class="space-y-4">
+                <input type="hidden" id="edit-reader-id">
+                <div><label for="edit-grade" class="block text-sm font-medium text-gray-700 mb-1">年级</label><select id="edit-grade" name="edit-grade" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input"><option value="1">1年级</option><option value="2">2年级</option><option value="3">3年级</option><option value="4">4年级</option><option value="5">5年级</option><option value="6">6年级</option></select></div>
+                <div><label for="edit-reader-name" class="block text-sm font-medium text-gray-700 mb-1">读者名称</label><input id="edit-reader-name" name="edit-reader-name" type="text" required class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none form-input" placeholder="请输入读者姓名"></div>
+                <div class="flex justify-end space-x-4"><button type="button" id="cancel-edit" class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 transition-all">取消</button><button type="submit" class="px-4 py-2 bg-primary text-white rounded-md hover:bg-blue-700 transition-all btn-primary">保存修改</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 提示消息 (不变) -->
+    <div id="toast" class="fixed top-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-sm transform translate-x-full transition-transform duration-300 z-50 flex items-center"><div id="toast-icon" class="mr-3 text-green-500"><i class="fa fa-check-circle text-xl"></i></div><div><h4 id="toast-title" class="font-medium text-gray-800">操作成功</h4><p id="toast-message" class="text-sm text-gray-600">您的操作已成功完成</p></div></div>
+
+    <script>
+        (function() {
+            // ---------- 全局变量 ----------
+            let currentTab = 'borrow-tab';
+            let borrowRecords = JSON.parse(localStorage.getItem('borrowRecords')) || [];
+            let readers = JSON.parse(localStorage.getItem('readers')) || [];
+            let currentPage = 1;
+            const recordsPerPage = 10;
+            let selectedRecordId = null;
+            let selectedReaderId = null;
+
+            // ---------- 文件同步相关 ----------
+            let fileHandle = null;                // 当前文件句柄 (FileSystemFileHandle)
+            let syncEnabled = false;               // 是否已连接有效文件
+            const syncIcon = document.getElementById('sync-icon');
+            const syncText = document.getElementById('sync-text');
+            const syncBtn = document.getElementById('sync-file-btn');
+
+            // 检测浏览器是否支持 File System Access API
+            const supportsFileSystem = 'showSaveFilePicker' in window;
+
+            if (!supportsFileSystem) {
+                syncBtn.style.display = 'none';   // 不支持则隐藏自动同步按钮
+            }
+
+            // ---------- IndexedDB 存储文件句柄 (以便刷新后恢复) ----------
+            const DB_NAME = 'LibraryFileHandleDB';
+            const DB_VERSION = 1;
+            const STORE_NAME = 'handles';
+
+            function openDB() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(DB_NAME, DB_VERSION);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onupgradeneeded = (ev) => {
+                        const db = ev.target.result;
+                        if (!db.objectStoreNames.contains(STORE_NAME)) {
+                            db.createObjectStore(STORE_NAME);
+                        }
+                    };
+                });
+            }
+
+            async function saveHandleToIndexedDB(handle) {
+                if (!handle) return;
+                const db = await openDB();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(STORE_NAME, 'readwrite');
+                    const store = tx.objectStore(STORE_NAME);
+                    const request = store.put(handle, 'fileHandle');
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async function loadHandleFromIndexedDB() {
+                const db = await openDB();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(STORE_NAME, 'readonly');
+                    const store = tx.objectStore(STORE_NAME);
+                    const request = store.get('fileHandle');
+                    request.onsuccess = () => resolve(request.result || null);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async function clearHandleFromIndexedDB() {
+                const db = await openDB();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(STORE_NAME, 'readwrite');
+                    const store = tx.objectStore(STORE_NAME);
+                    const request = store.delete('fileHandle');
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            // 验证并请求权限
+            async function verifyPermission(handle, withWrite = true) {
+                try {
+                    const opts = { mode: withWrite ? 'readwrite' : 'read' };
+                    if ((await handle.queryPermission(opts)) === 'granted') return true;
+                    if ((await handle.requestPermission(opts)) === 'granted') return true;
+                } catch (e) {
+                    console.warn('权限请求异常', e);
+                    return false;
+                }
+                return false;
+            }
+
+            // 更新同步状态图标
+            function updateSyncStatus(connected) {
+                syncEnabled = connected;
+                if (connected) {
+                    syncIcon.className = 'fa fa-circle text-green-500 mr-1';
+                    syncText.innerText = '已连接';
+                    syncBtn.innerHTML = '<i class="fa fa-refresh mr-1"></i>更换文件';
+                } else {
+                    syncIcon.className = 'fa fa-circle text-gray-400 mr-1';
+                    syncText.innerText = '未连接';
+                    syncBtn.innerHTML = '<i class="fa fa-file-text-o mr-1"></i>开启自动同步';
+                    fileHandle = null;
+                }
+            }
+
+            // 将当前数据写入文件 (覆盖写入)
+            async function saveToFile() {
+                if (!fileHandle) return;
+                try {
+                    const ok = await verifyPermission(fileHandle, true);
+                    if (!ok) {
+                        showToast('error', '权限丢失', '无法写入文件，请重新连接');
+                        updateSyncStatus(false);
+                        await clearHandleFromIndexedDB();
+                        return;
+                    }
+                    const data = { borrowRecords, readers };
+                    const jsonStr = JSON.stringify(data, null, 2);
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(jsonStr);
+                    await writable.close();
+                } catch (err) {
+                    console.error('写入文件失败', err);
+                    // 如果是跨域子帧错误或其他安全错误，降级并显示提示
+                    if (err.name === 'SecurityError' || (err.message && err.message.includes('Cross origin sub frames'))) {
+                        showToast('error', '环境不支持', '当前运行环境无法使用自动同步，请使用手动备份按钮。');
+                        updateSyncStatus(false);
+                        await clearHandleFromIndexedDB();
+                        syncBtn.style.display = 'none'; // 隐藏自动同步按钮
+                    } else {
+                        showToast('error', '同步失败', err.message || '无法写入文件');
+                    }
+                }
+            }
+
+            // 选择文件并保存初始数据
+            async function pickFileAndSave(initialData = true) {
+                if (!supportsFileSystem) {
+                    showToast('error', '不支持', '当前浏览器不支持本地文件同步');
+                    return null;
+                }
+                try {
+                    const suggestedName = 'library_backup.json';
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName,
+                        types: [{
+                            description: 'JSON 备份文件',
+                            accept: { 'application/json': ['.json'] }
+                        }]
+                    });
+                    const ok = await verifyPermission(handle, true);
+                    if (!ok) {
+                        showToast('error', '无权限', '无法写入该文件');
+                        return null;
+                    }
+                    fileHandle = handle;
+                    await saveHandleToIndexedDB(handle);
+                    updateSyncStatus(true);
+                    await saveToFile(); // 立即写入当前数据
+                    showToast('success', '连接成功', '本地文件已关联，后续操作将自动同步');
+                    return handle;
+                } catch (err) {
+                    if (err.name === 'AbortError') return null; // 用户取消
+                    // 处理跨域子帧错误
+                    if (err.name === 'SecurityError' || (err.message && err.message.includes('Cross origin sub frames'))) {
+                        showToast('error', '环境限制', '当前运行环境（如在线编辑器）无法使用文件选择器，请使用下方的“导出备份”按钮手动保存。');
+                        syncBtn.style.display = 'none'; // 隐藏自动同步按钮
+                        updateSyncStatus(false);
+                    } else {
+                        showToast('error', '选择失败', err.message);
+                    }
+                    return null;
+                }
+            }
+
+            // 尝试从IndexedDB恢复句柄
+            async function restoreFileHandle() {
+                if (!supportsFileSystem) return;
+                const stored = await loadHandleFromIndexedDB();
+                if (!stored) return;
+                try {
+                    const ok = await verifyPermission(stored, true);
+                    if (ok) {
+                        fileHandle = stored;
+                        updateSyncStatus(true);
+                        showToast('info', '恢复连接', '已自动连接到之前的本地文件');
+                    } else {
+                        await clearHandleFromIndexedDB();
+                        updateSyncStatus(false);
+                    }
+                } catch (e) {
+                    console.warn('恢复句柄失败', e);
+                    await clearHandleFromIndexedDB();
+                    updateSyncStatus(false);
+                }
+            }
+
+            // ---------- 手动备份：导出JSON ----------
+            function exportBackup() {
+                const data = { borrowRecords, readers };
+                const jsonStr = JSON.stringify(data, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `library_backup_${new Date().toISOString().slice(0,10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast('success', '导出成功', '备份文件已下载');
+            }
+
+            // 手动恢复：导入JSON
+            function importBackup(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        if (data.borrowRecords && Array.isArray(data.borrowRecords)) {
+                            borrowRecords = data.borrowRecords;
+                            localStorage.setItem('borrowRecords', JSON.stringify(borrowRecords));
+                        }
+                        if (data.readers && Array.isArray(data.readers)) {
+                            readers = data.readers;
+                            localStorage.setItem('readers', JSON.stringify(readers));
+                        }
+                        showToast('success', '恢复成功', '数据已从备份文件加载');
+                        // 刷新当前标签页显示
+                        updateReturnBooksList();
+                        updateRecordsList();
+                        updateReadersList();
+                    } catch (ex) {
+                        showToast('error', '解析失败', '文件格式不正确');
+                    }
+                };
+                reader.readAsText(file);
+            }
+
+            // ---------- 辅助函数 (保持不变) ----------
+            function formatDate(dateStr) { return dateStr || '-'; }
+            function isOverdue(dueDate) { return new Date(dueDate) < new Date(new Date().toDateString()); }
+            function calculateOverdueDays(dueDate) { return Math.floor((new Date() - new Date(dueDate)) / (1000*3600*24)); }
+
+            function showToast(type, title, message) {
+                const toast = document.getElementById('toast');
+                const icon = document.getElementById('toast-icon');
+                const tTitle = document.getElementById('toast-title');
+                const tMsg = document.getElementById('toast-message');
+                icon.innerHTML = type==='success'?'<i class="fa fa-check-circle text-xl"></i>': type==='error'?'<i class="fa fa-times-circle text-xl"></i>':'<i class="fa fa-exclamation-triangle text-xl"></i>';
+                icon.className = 'mr-3 ' + (type==='success'?'text-green-500':type==='error'?'text-red-500':'text-yellow-500');
+                tTitle.textContent = title; tMsg.textContent = message;
+                toast.classList.remove('translate-x-full');
+                setTimeout(() => toast.classList.add('translate-x-full'), 3000);
+            }
+
+            function saveBorrowRecords() { localStorage.setItem('borrowRecords', JSON.stringify(borrowRecords)); }
+            function saveReaders() { localStorage.setItem('readers', JSON.stringify(readers)); }
+
+            // 初始化星星
+            function initStars() {
+                const stars = document.getElementById('stars');
+                for(let i=0;i<100;i++) { let s=document.createElement('div'); s.classList.add('star'); let size=Math.random()*3; s.style.width=size+'px'; s.style.height=size+'px'; s.style.left=Math.random()*100+'%'; s.style.top=Math.random()*100+'%'; s.style.animationDelay=Math.random()*5+'s'; stars.appendChild(s); }
+            }
+            initStars();
+
+            // ---------- PDF 导出函数 (不变) ----------
+            async function exportDataToPDF(title, columns, data, filename) {
+                if (!data.length) { showToast('warning', '无数据', '没有可导出的记录'); return; }
+                showToast('info', '准备导出', '正在生成PDF...');
+                let html = `
+                <div style="padding:20px; font-family: sans-serif;">
+                    <h2 style="text-align:center; color:#1e40af;">${title}</h2>
+                    <p style="text-align:center; color:#4b5563; font-size:12px;">导出时间：${new Date().toLocaleString('zh-CN')}</p>
+                    <table style="width:100%; border-collapse:collapse; margin-top:15px; font-size:12px;">
+                        <thead style="background:#f3f4f6;">`;
+                html += '<tr>';
+                columns.forEach(col => html += `<th style="border:1px solid #d1d5db; padding:6px; text-align:left;">${col.label}</th>`);
+                html += '</tr></thead><tbody>';
+                data.forEach((item, idx) => {
+                    html += '<tr>';
+                    columns.forEach(col => {
+                        let val = col.key ? item[col.key] : (col.formatter ? col.formatter(item, idx) : '-');
+                        html += `<td style="border:1px solid #d1d5db; padding:6px;">${val ?? ''}</td>`;
+                    });
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+
+                const container = document.createElement('div');
+                container.style.position = 'absolute'; container.style.left = '-9999px'; container.style.width = '1024px';
+                container.innerHTML = html;
+                document.body.appendChild(container);
+
+                try {
+                    const canvas = await html2canvas(container, { scale: 2, logging: false, useCORS: true });
+                    const { jsPDF } = window.jspdf;
+                    const pdf = new jsPDF('landscape', 'mm', 'a4');
+                    const imgData = canvas.toDataURL('image/png');
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+                    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+                    pdf.save(filename || `${title}.pdf`);
+                    showToast('success', '导出成功', `《${title}》已导出`);
+                } catch (e) {
+                    console.error(e);
+                    showToast('error', '导出失败', '请重试或检查控制台');
+                } finally {
+                    document.body.removeChild(container);
+                }
+            }
+
+            // ---------- 过滤函数 (与之前相同) ----------
+            function getFilteredReturnBooks() {
+                const grade = document.getElementById('search-grade').value;
+                const reader = document.getElementById('search-reader').value.toLowerCase().trim();
+                const book = document.getElementById('search-book').value.toLowerCase().trim();
+                const bDate = document.getElementById('search-borrow-date').value;
+                const rDate = document.getElementById('search-return-date').value;
+                return borrowRecords.filter(r => r.status === 'borrowed' && 
+                    (!grade || r.grade === grade) &&
+                    (!reader || r.readerName.toLowerCase().includes(reader)) &&
+                    (!book || r.bookName.toLowerCase().includes(book)) &&
+                    (!bDate || r.borrowDate === bDate) &&
+                    (!rDate || r.expectedReturnDate === rDate)
+                );
+            }
+
+            function getFilteredRecords() {
+                const search = document.getElementById('search-records').value.toLowerCase().trim();
+                const status = document.getElementById('filter-status').value;
+                return borrowRecords.filter(r => 
+                    (r.readerName.toLowerCase().includes(search) || r.bookName.toLowerCase().includes(search)) &&
+                    (status === 'all' || r.status === status)
+                ).sort((a,b)=>new Date(b.borrowDate)-new Date(a.borrowDate));
+            }
+
+            function getFilteredReaders() {
+                const search = document.getElementById('search-readers').value.toLowerCase().trim();
+                const grade = document.getElementById('filter-grade').value;
+                const readerMap = new Map();
+                borrowRecords.forEach(r => {
+                    const key = r.grade+'-'+r.readerName;
+                    if (!readerMap.has(key)) readerMap.set(key, { grade: r.grade, name: r.readerName, borrowed:0 });
+                    if (r.status==='borrowed') readerMap.get(key).borrowed++;
+                });
+                return Array.from(readerMap.values())
+                    .filter(r => (grade==='all'||r.grade===grade) && r.name.toLowerCase().includes(search))
+                    .sort((a,b)=> a.grade.localeCompare(b.grade) || a.name.localeCompare(b.name));
+            }
+
+            // ---------- 更新表格 (与之前相同) ----------
+            function updateReturnBooksList() {
+                const list = getFilteredReturnBooks();
+                const tbody = document.getElementById('return-books-list');
+                if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-4 text-center text-gray-500">暂无待归还图书</td></tr>'; return; }
+                tbody.innerHTML = list.map((r,i) => {
+                    const overdue = isOverdue(r.expectedReturnDate);
+                    return `<tr class="${overdue?'bg-red-50':'table-row'}"><td class="px-6 py-4">${i+1}</td><td>${r.grade}年级</td><td>${r.readerName}</td><td>${r.bookName}</td><td>${r.borrowDate}</td><td>${r.expectedReturnDate}</td><td><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${overdue?'bg-red-100 text-red-800':'bg-yellow-100 text-yellow-800'}">${overdue?'已逾期':'未归还'}</span></td><td><button class="text-primary hover:text-blue-800 return-btn" data-id="${r.id}">归还</button></td></tr>`;
+                }).join('');
+                document.querySelectorAll('.return-btn').forEach(btn => btn.addEventListener('click', function() {
+                    selectedRecordId = this.dataset.id;
+                    const rec = borrowRecords.find(r=>r.id===selectedRecordId);
+                    document.getElementById('confirm-title').innerText = '确认归还';
+                    document.getElementById('confirm-message').innerText = `确定归还《${rec.bookName}》？`;
+                    document.getElementById('confirm-dialog').classList.remove('hidden');
+                }));
+            }
+
+            function updateRecordsList() {
+                const filtered = getFilteredRecords();
+                const total = filtered.length;
+                document.getElementById('total-records').innerText = total;
+                const pages = Math.ceil(total/recordsPerPage) || 1;
+                if (currentPage > pages) currentPage = pages;
+                const start = (currentPage-1)*recordsPerPage;
+                const pageData = filtered.slice(start, start+recordsPerPage);
+                const tbody = document.getElementById('records-list');
+                if (!pageData.length) { tbody.innerHTML = '<tr><td colspan="9" class="px-6 py-4 text-center text-gray-500">暂无借还记录</td></tr>'; return; }
+                tbody.innerHTML = pageData.map((r,i) => `<tr><td>${start+i+1}</td><td>${r.grade}年级</td><td>${r.readerName}</td><td>${r.bookName}</td><td>¥${r.bookPrice.toFixed(2)}</td><td>${r.borrowDate}</td><td>${r.expectedReturnDate}</td><td>${r.actualReturnDate||'-'}</td><td><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${r.status==='borrowed'?'bg-yellow-100 text-yellow-800':'bg-green-100 text-green-800'}">${r.status==='borrowed'?'未归还':'已归还'}</span></td></tr>`).join('');
+                document.getElementById('current-page').innerText = currentPage;
+                document.getElementById('prev-page').disabled = currentPage===1;
+                document.getElementById('next-page').disabled = currentPage>=pages;
+            }
+
+            function updateReadersList() {
+                const list = getFilteredReaders();
+                const tbody = document.getElementById('readers-list');
+                if (!list.length) { tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">暂无读者信息</td></tr>'; return; }
+                tbody.innerHTML = list.map((r,i) => `<tr><td>${i+1}</td><td>${r.grade}年级</td><td>${r.name}</td><td>${r.borrowed}</td><td><button class="text-primary hover:text-blue-800 edit-reader-btn" data-id="${r.grade}-${r.name}" data-grade="${r.grade}" data-name="${r.name}">修改</button></td></tr>`).join('');
+                document.querySelectorAll('.edit-reader-btn').forEach(btn => btn.addEventListener('click', function() {
+                    selectedReaderId = this.dataset.id;
+                    document.getElementById('edit-grade').value = this.dataset.grade;
+                    document.getElementById('edit-reader-name').value = this.dataset.name;
+                    document.getElementById('edit-reader-dialog').classList.remove('hidden');
+                }));
+            }
+
+            // 归还动作 (异步，因为要保存文件)
+            async function returnBook(recordId) {
+                const idx = borrowRecords.findIndex(r=>r.id===recordId);
+                if(idx>=0) {
+                    borrowRecords[idx].status = 'returned';
+                    borrowRecords[idx].actualReturnDate = new Date().toISOString().split('T')[0];
+                    saveBorrowRecords();
+                    showToast('success','归还成功',`《${borrowRecords[idx].bookName}》已归还`);
+                    updateReturnBooksList(); updateRecordsList(); updateReadersList();
+                    if (syncEnabled) await saveToFile();
+                }
+            }
+
+            // ---------- 事件绑定 ----------
+            document.addEventListener('DOMContentLoaded', async function() {
+                // 尝试恢复文件句柄
+                await restoreFileHandle();
+
+                // 登录
+                document.getElementById('login-form').addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    if(document.getElementById('password').value === '1936') {
+                        document.getElementById('login-page').classList.add('hidden');
+                        document.getElementById('main-page').classList.remove('hidden');
+                        document.getElementById('current-user').classList.remove('hidden');
+                        showToast('success','登录成功','欢迎使用');
+                        updateReturnBooksList(); updateRecordsList(); updateReadersList();
+                    } else {
+                        document.getElementById('login-error').classList.remove('hidden');
+                        setTimeout(()=>document.getElementById('login-error').classList.add('hidden'),3000);
+                    }
+                });
+                document.getElementById('toggle-password').addEventListener('click', function() {
+                    let p = document.getElementById('password'); let i = this.querySelector('i');
+                    if(p.type==='password') { p.type='text'; i.classList.remove('fa-eye-slash'); i.classList.add('fa-eye'); } 
+                    else { p.type='password'; i.classList.remove('fa-eye'); i.classList.add('fa-eye-slash'); }
+                });
+                document.getElementById('logout-btn').addEventListener('click', function() {
+                    document.getElementById('main-page').classList.add('hidden');
+                    document.getElementById('login-page').classList.remove('hidden');
+                    document.getElementById('password').value='';
+                });
+
+                // 标签页
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', function() {
+                    document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('text-primary','border-primary'); b.classList.add('text-gray-500','border-transparent');});
+                    this.classList.remove('text-gray-500','border-transparent'); this.classList.add('text-primary','border-primary');
+                    document.querySelectorAll('.tab-content').forEach(c=>c.classList.add('hidden'));
+                    document.getElementById(this.dataset.tab).classList.remove('hidden');
+                    currentTab = this.dataset.tab;
+                    if(currentTab==='return-tab') updateReturnBooksList();
+                    else if(currentTab==='records-tab') { currentPage=1; updateRecordsList(); }
+                    else if(currentTab==='readers-tab') updateReadersList();
+                }));
+
+                // 借阅提交 (async)
+                document.getElementById('borrow-form').addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    const grade = document.getElementById('grade').value;
+                    const readerName = document.getElementById('reader-name').value.trim();
+                    const bookName = document.getElementById('book-name').value.trim();
+                    const price = parseFloat(document.getElementById('book-price').value);
+                    if(!grade||!readerName||!bookName||isNaN(price)) { showToast('error','错误','请填写完整信息'); return; }
+                    const borrowDate = new Date().toISOString().split('T')[0];
+                    const due = new Date(); due.setDate(due.getDate()+7);
+                    const record = { id: Date.now().toString(), grade, readerName, bookName, bookPrice:price, borrowDate, expectedReturnDate:due.toISOString().split('T')[0], actualReturnDate:null, status:'borrowed' };
+                    borrowRecords.push(record); saveBorrowRecords();
+                    const readerKey = grade+'-'+readerName;
+                    if(!readers.some(r=>r.id===readerKey)) { readers.push({id:readerKey, grade, name:readerName}); saveReaders(); }
+                    this.reset(); showToast('success','借阅成功',`《${bookName}》借给${readerName}`);
+                    updateReturnBooksList(); updateRecordsList(); updateReadersList();
+
+                    if (!syncEnabled && supportsFileSystem && syncBtn.style.display !== 'none') {
+                        // 未连接且支持自动同步，询问用户
+                        const wantSync = confirm('尚未开启本地文件自动同步，是否现在选择文件并开启？');
+                        if (wantSync) {
+                            await pickFileAndSave();
+                        }
+                    } else if (syncEnabled) {
+                        await saveToFile();
+                    }
+                });
+                document.getElementById('reset-borrow-form').addEventListener('click', ()=>document.getElementById('borrow-form').reset());
+
+                // 归还页搜索/重置
+                document.getElementById('search-return-btn').addEventListener('click', updateReturnBooksList);
+                document.getElementById('reset-search').addEventListener('click', function() {
+                    ['search-grade','search-reader','search-book','search-borrow-date','search-return-date'].forEach(id=>document.getElementById(id).value='');
+                    updateReturnBooksList();
+                });
+
+                // 记录查询
+                document.getElementById('search-records-btn').addEventListener('click', ()=>{ currentPage=1; updateRecordsList(); });
+                document.getElementById('filter-status').addEventListener('change', ()=>{ currentPage=1; updateRecordsList(); });
+                document.getElementById('prev-page').addEventListener('click', ()=>{ if(currentPage>1) { currentPage--; updateRecordsList(); } });
+                document.getElementById('next-page').addEventListener('click', ()=>{ let max=Math.ceil(getFilteredRecords().length/recordsPerPage); if(currentPage<max) { currentPage++; updateRecordsList(); } });
+
+                // 读者管理搜索
+                document.getElementById('search-readers-btn').addEventListener('click', updateReadersList);
+                document.getElementById('filter-grade').addEventListener('change', updateReadersList);
+                document.getElementById('search-readers').addEventListener('input', updateReadersList);
+
+                // 新增读者模态框
+                const modal = document.getElementById('add-reader-modal');
+                document.getElementById('add-reader-btn').addEventListener('click', ()=>modal.classList.remove('hidden'));
+                document.getElementById('cancel-add-reader').addEventListener('click', ()=>modal.classList.add('hidden'));
+                modal.addEventListener('click', e=>{ if(e.target===modal) modal.classList.add('hidden'); });
+                document.getElementById('add-reader-form').addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    const grade = document.getElementById('new-reader-grade').value;
+                    const name = document.getElementById('new-reader-name').value.trim();
+                    if(!grade||!name) { showToast('error','错误','请填写完整'); return; }
+                    const id = grade+'-'+name;
+                    if(readers.some(r=>r.id===id)) { showToast('error','重复','该读者已存在'); return; }
+                    readers.push({id, grade, name}); saveReaders();
+                    updateReadersList();
+                    modal.classList.add('hidden'); this.reset();
+                    showToast('success','添加成功',`读者 ${name}`);
+                    if (syncEnabled) await saveToFile();
+                });
+
+                // 确认对话框 (归还)
+                document.getElementById('confirm-action').addEventListener('click', async function() {
+                    if(selectedRecordId) { await returnBook(selectedRecordId); selectedRecordId=null; }
+                    document.getElementById('confirm-dialog').classList.add('hidden');
+                });
+                document.getElementById('cancel-confirm').addEventListener('click', ()=>document.getElementById('confirm-dialog').classList.add('hidden'));
+
+                // 修改读者
+                document.getElementById('edit-reader-form').addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    if(!selectedReaderId) return;
+                    const newGrade = document.getElementById('edit-grade').value;
+                    const newName = document.getElementById('edit-reader-name').value.trim();
+                    if(!newName) return;
+                    const idx = readers.findIndex(r=>r.id===selectedReaderId);
+                    if(idx!==-1) {
+                        const old = readers[idx];
+                        readers[idx] = {id: newGrade+'-'+newName, grade:newGrade, name:newName};
+                        saveReaders();
+                        borrowRecords.forEach(r => { if(r.readerName===old.name && r.grade===old.grade) { r.readerName=newName; r.grade=newGrade; } });
+                        saveBorrowRecords();
+                        showToast('success','修改成功','读者信息已更新');
+                        updateReadersList(); updateReturnBooksList(); updateRecordsList();
+                        if (syncEnabled) await saveToFile();
+                    }
+                    document.getElementById('edit-reader-dialog').classList.add('hidden');
+                });
+                document.getElementById('cancel-edit').addEventListener('click', ()=>document.getElementById('edit-reader-dialog').classList.add('hidden'));
+
+                // ---------- 文件同步按钮 ----------
+                syncBtn.addEventListener('click', async function() {
+                    if (!supportsFileSystem) return;
+                    if (syncEnabled) {
+                        const action = confirm('已连接到文件。确定要更换文件吗？\n点击确定重新选择文件，点击取消断开连接。');
+                        if (action) {
+                            await pickFileAndSave();
+                        } else {
+                            fileHandle = null;
+                            updateSyncStatus(false);
+                            await clearHandleFromIndexedDB();
+                            showToast('info', '已断开', '本地文件同步已关闭');
+                        }
+                    } else {
+                        await pickFileAndSave();
+                    }
+                });
+
+                // 手动备份按钮
+                document.getElementById('export-backup-btn').addEventListener('click', exportBackup);
+                document.getElementById('import-backup-btn').addEventListener('click', () => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.json,application/json';
+                    input.onchange = (e) => {
+                        if (e.target.files.length > 0) importBackup(e.target.files[0]);
+                    };
+                    input.click();
+                });
+
+                // ---------- PDF 导出绑定 (不变) ----------
+                document.getElementById('export-readers-pdf').addEventListener('click', function() {
+                    const list = getFilteredReaders();
+                    const cols = [
+                        { label:'序号', formatter:(_,i)=>i+1 },
+                        { label:'年级', key:'grade' },
+                        { label:'读者名称', key:'name' },
+                        { label:'未还图书', key:'borrowed' }
+                    ];
+                    exportDataToPDF('读者信息列表', cols, list, '读者信息.pdf');
+                });
+                document.getElementById('export-records-pdf').addEventListener('click', function() {
+                    const list = getFilteredRecords();
+                    const cols = [
+                        { label:'序号', formatter:(_,i)=>i+1 },
+                        { label:'年级', key:'grade' },
+                        { label:'读者名称', key:'readerName' },
+                        { label:'书籍名称', key:'bookName' },
+                        { label:'价格', key:'bookPrice', formatter:r=>'¥'+r.bookPrice?.toFixed(2) },
+                        { label:'借阅时间', key:'borrowDate' },
+                        { label:'应还时间', key:'expectedReturnDate' },
+                        { label:'归还时间', key:'actualReturnDate', formatter:r=>r.actualReturnDate||'-' },
+                        { label:'状态', formatter:r=>r.status==='borrowed'?'未归还':'已归还' }
+                    ];
+                    exportDataToPDF('借还记录列表', cols, list, '借还记录.pdf');
+                });
+                document.getElementById('export-return-pdf').addEventListener('click', function() {
+                    const list = getFilteredReturnBooks();
+                    const cols = [
+                        { label:'序号', formatter:(_,i)=>i+1 },
+                        { label:'年级', key:'grade' },
+                        { label:'读者名称', key:'readerName' },
+                        { label:'书籍名称', key:'bookName' },
+                        { label:'借阅时间', key:'borrowDate' },
+                        { label:'应还时间', key:'expectedReturnDate' },
+                        { label:'状态', formatter:r=>isOverdue(r.expectedReturnDate)?'已逾期':'未归还' }
+                    ];
+                    exportDataToPDF('未归还图书列表', cols, list, '未归还图书.pdf');
+                });
+                document.getElementById('export-overdue-pdf').addEventListener('click', function() {
+                    const list = getFilteredReturnBooks().filter(r => isOverdue(r.expectedReturnDate));
+                    const cols = [
+                        { label:'序号', formatter:(_,i)=>i+1 },
+                        { label:'年级', key:'grade' },
+                        { label:'读者名称', key:'readerName' },
+                        { label:'书籍名称', key:'bookName' },
+                        { label:'借阅时间', key:'borrowDate' },
+                        { label:'应还时间', key:'expectedReturnDate' },
+                        { label:'逾期天数', formatter:r=>calculateOverdueDays(r.expectedReturnDate) }
+                    ];
+                    exportDataToPDF('逾期图书列表', cols, list, '逾期图书.pdf');
+                });
+
+                // 点击模态框外部关闭修改框
+                document.getElementById('edit-reader-dialog').addEventListener('click', function(e) { if(e.target===this) this.classList.add('hidden'); });
+            });
+        })();
+    </script>
+</body>
+</html>
